@@ -3,6 +3,7 @@ package com.lb.spring_config_refresh.refresh;
 import com.alibaba.druid.pool.DruidDataSource;
 
 import com.lb.spring_config_refresh.scope.RedisRefreshScopeRegistry;
+import com.lb.spring_config_refresh.utils.AnnotationSeakUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,26 +42,15 @@ public class RefreshConfigFactory {
     private RedisRefreshScopeRegistry redisRefreshScopeRegistry;
 
     @Autowired
-    private AutowiredAnnotationBeanPostProcessor autowiredAnnotationBeanPostProcessor;
+    private  AutowiredAnnotationBeanPostProcessor autowiredAnnotationBeanPostProcessor;
 
     @Autowired
-    private ConfigurationPropertiesBindingPostProcessor configurationPropertiesBindingPostProcessor;
+    public  ConfigurationPropertiesBindingPostProcessor configurationPropertiesBindingPostProcessor;
 
     private static Map<String, Object> configMap = null;
 
     @Value("${config.refresh.key}")
     private static String REDIS_CONFIG_NAME = "redisConfig";
-
-    private static Field beanFactoryMetadataField = null;
-
-    static {
-        try {
-            beanFactoryMetadataField = ConfigurationPropertiesBindingPostProcessor.class.getDeclaredField("beanFactoryMetadata");
-            ReflectionUtils.makeAccessible(beanFactoryMetadataField);
-        } catch (NoSuchFieldException e) {
-            e.printStackTrace();
-        }
-    }
 
     //刷新配置
     public void refreshConfig(Map<String, Object> configMap) {
@@ -71,37 +61,27 @@ public class RefreshConfigFactory {
     }
 
     public void resetBeanProperties() {
-        ConfigurableListableBeanFactory beanFactory = redisRefreshScopeRegistry.getBeanFactory();
         try {
             String[] beanDefinitionNames = redisRefreshScopeRegistry.getRegistry().getBeanDefinitionNames();
             for (String beanDefinitionName : beanDefinitionNames) {
-                BeanDefinition beanDefinition = redisRefreshScopeRegistry.getRegistry().getBeanDefinition(beanDefinitionName);
                 Object bean = redisRefreshScopeRegistry.getBeanFactory().getBean(beanDefinitionName);
-
-                Annotation configurationPropertiesAnnotation = getAnnotation(bean, beanDefinitionName, ConfigurationProperties.class);
-                if (configurationPropertiesAnnotation != null) {
+                if (AnnotationSeakUtils.hasConfigurationPropertiesAnnotation(bean, beanDefinitionName)) {
                     //用于类上有@ConfigurationProperties注解或者@Bean方式创建有此注解的bean属性重新复制
-                    configurationPropertiesBindingPostProcessor.postProcessBeforeInitialization(bean
-                            , beanDefinitionName);
+                    configurationPropertiesBindingPostProcessor.postProcessBeforeInitialization(bean, beanDefinitionName);
                     //数据源的话。需要重启
-                    if (druidIsImported()) {
-                        if (bean instanceof DruidDataSource) {
-                            ((DruidDataSource) bean).restart();
-                            System.out.println("重置数据源");
-                        }
+                    if (druidIsImported() && bean instanceof DruidDataSource) {
+                        ((DruidDataSource) bean).restart();
                     }
-
-                } else {
-                    if (beanDefinitionName.equals("testController")) {
-                        //用于bean的属性,从配置信息重新赋值
-                        autowiredAnnotationBeanPostProcessor.postProcessPropertyValues(null, null, bean, beanDefinitionName);
-                    }
+                } else if (AnnotationSeakUtils.hasValueAnnotation(bean.getClass())) {
+                    //用于bean的属性,从配置信息重新赋值
+                    autowiredAnnotationBeanPostProcessor.postProcessPropertyValues(null, null, bean, beanDefinitionName);
                 }
             }
         } catch (Exception e) {
             e.printStackTrace();
+        } finally {
+            System.out.println("刷新配置完毕");
         }
-
     }
 
     private void refreshPropertySource() {
@@ -137,20 +117,6 @@ public class RefreshConfigFactory {
         }
     }
 
-
-    private <A extends Annotation> A getAnnotation(Object bean, String beanName, Class<A> annotationType) {
-        try {
-            ConfigurationBeanFactoryMetadata factoryMetadata = (ConfigurationBeanFactoryMetadata) beanFactoryMetadataField.get(configurationPropertiesBindingPostProcessor);
-            A annotation = factoryMetadata.findFactoryAnnotation(beanName, annotationType);
-            if (annotation == null) {
-                annotation = AnnotationUtils.findAnnotation(bean.getClass(), annotationType);
-            }
-            return annotation;
-        } catch (IllegalAccessException e) {
-            e.printStackTrace();
-        }
-        return null;
-    }
 
     /**
      * 感觉没啥用,已经强依赖Druid数据源这个包了
