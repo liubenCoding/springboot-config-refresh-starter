@@ -27,6 +27,7 @@ public class RedisBeanFactory {
     @Value("${config.refresh.key}")
     private String configKey;
 
+
     @Value("${spring.redis.database}")
     private String database;
 
