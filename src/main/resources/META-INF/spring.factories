@@ -1,0 +1,4 @@
+# Auto Configure
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+com.lb.spring_config_refresh.autoconfigure.ConfigRefreshAutoConfiguration
+
